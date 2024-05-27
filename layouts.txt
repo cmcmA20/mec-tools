@@ -1,0 +1,55 @@
+original:
+  encrypted (lenovo):
+    0x00000:
+
+  plain:
+    0x00200:
+
+  encrypted (lenovo):
+    0x00ff0:
+    0x01000: lenovo key schedule
+    0x02048:
+    0x02928: lenovo iv
+    0x02930:
+
+  plain:
+    0x03000:
+    0x30000: EOF
+
+
+bootstrap:
+  encrypted (lenovo):
+    0x00000:
+
+  plain:
+    0x00200:
+
+  encrypted (lenovo):
+    0x00ff0:
+    0x01000: your key schedule
+    0x02048:
+    0x02928: your iv
+    0x02930:
+
+  plain:
+    0x03000:
+    0x30000: EOF
+
+
+final:
+  encrypted (your):
+    0x00000:
+
+  plain:
+    0x00200:
+
+  encrypted (your):
+    0x00ff0:
+    0x01000: your key schedule
+    0x02048:
+    0x02928: your iv
+    0x02930:
+
+  plain:
+    0x03000:
+    0x30000: EOF

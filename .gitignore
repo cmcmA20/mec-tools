@@ -37,3 +37,5 @@ mec_csum_flasher
 mec_csum_outer
 mec_encrypt
 
+reference/*.bin
+reference/*.FL2

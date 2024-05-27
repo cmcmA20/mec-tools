@@ -2,11 +2,45 @@
  * mec_encrypt.c: encrypt/decrypt firmware images
  */
 #include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <openssl/blowfish.h>
 #include "mmapfile.h"
 
-static const BF_KEY key = {{
+// `-ol` for using lenovo key, `-oy` for your using your key and iv
+// `-pl` for lenovo payload, `-py` for your payload
+// `-e` for encryption, `-d` for decryption
+void usage(const char *progname) {
+  fprintf(stderr, "usage: %s {-ol|-oy} {-pl|-py} {-e|-d} file [outfile]\n", progname);
+  exit(EXIT_FAILURE);
+}
+
+void swap32 (uint32_t *x) {
+  uint32_t t = *x;
+  *x = (t & 0x000000FF) << 24
+     | (t & 0x0000FF00) << 8
+     | (t & 0x00FF0000) >> 8
+     | (t & 0xFF000000) >> 24;
+}
+
+
+static const unsigned char your_key[] = {
+  'A', 'L', 'L',
+  'Y', 'O', 'U', 'R',
+  'B', 'A', 'S', 'E',
+  'A', 'R', 'E',
+  'B', 'E', 'L', 'O', 'N', 'G',
+  'T', 'O',
+  'U', 'S'
+};
+
+static BF_KEY your_schedule;
+
+static const unsigned char your_iv[8] = { 0x29, 0xCA, 0x7F, 0x08, 0xAA, 0x13, 0xD4, 0xFB };
+
+
+static const BF_KEY lenovo_schedule = {{
     0x37FD1F7D, 0xC6A8EF95,
     0x7692330F, 0xBC9106B5, 0xC823E7B6, 0x550C9612, 0xBB52F005, 0xFE24B4F2, 0x4072A551, 0x318F9777,
     0x86EC4125, 0x60B4F9AB, 0x6F2E55B4, 0x3941CD93, 0xFA05B918, 0xCDE4DDD0, 0x71E89A94, 0x2958D3AE
@@ -141,54 +175,100 @@ static const BF_KEY key = {{
     0xAD75A1E3, 0xEE29F7E3, 0xB0165686, 0x880F7A1D, 0x60C199DA, 0xE119E154, 0x43573FCF, 0x545688A7
 }};
 
-static unsigned char iv[8] = { 0x24, 0x3F, 0x6A, 0x88, 0x85, 0xA3, 0x08, 0xD3 };
+static const unsigned char lenovo_iv[8] = { 0x24, 0x3F, 0x6A, 0x88, 0x85, 0xA3, 0x08, 0xD3 };
+
+
+static BF_KEY owner_schedule, payload_schedule;
+static unsigned char owner_iv[8], payload_iv[8];
 
 int main(int argc, char *argv[])
 {
     size_t length;
     unsigned char *base;
-    unsigned char out[0x3000-0xff0];
-    unsigned char thisiv[8];
+    unsigned char tmp[0x3000 - 0xff0];
+    unsigned char out[0x3000 - 0xff0];
+    unsigned char this_iv[8];
     ssize_t r;
-    int enc;
+    int owner, payload, enc;
     int out_fd = STDOUT_FILENO;
 
-    if ((argc >= 3) && (strcmp(argv[1], "-e") == 0))
-        enc = 1;
-    else if ((argc >= 3) && (strcmp(argv[1], "-d") == 0))
-        enc = 0;
-    else
-    {
-        fprintf(stderr, "usage: %s {-e|-d} file [outfile]\n", argv[0]);
-        return 1;
+    if (argc != 6)
+      usage(argv[0]);
+
+    owner = 2;
+    if (0 == strcmp(argv[1] , "-ol")) {
+      owner = 0;
+    } else if (0 == strcmp(argv[1] , "-oy")) {
+      owner = 1;
     }
 
-    base = (unsigned char *)mmapfile(argv[2], PROT_READ, MAP_SHARED, &length);
-    if (base == MAP_FAILED)
-    {
+    payload = 2;
+    if (0 == strcmp(argv[2] , "-pl")) {
+      payload = 0;
+    } else if (0 == strcmp(argv[2] , "-py")) {
+      payload = 1;
+    }
+
+    enc = 2;
+    if (0 == strcmp(argv[3] , "-e")) {
+      enc = 1;
+    } else if (0 == strcmp(argv[3] , "-d")) {
+      enc = 0;
+    }
+
+    if (2 == owner || 2 == payload || 2 == enc)
+      usage(argv[0]);
+
+    // init
+    BF_set_key(&your_schedule, sizeof(your_key), your_key);
+
+    if (0 == owner) {
+      memmove(owner_iv, lenovo_iv, 8);
+      memmove(&owner_schedule, &lenovo_schedule, sizeof(BF_KEY));
+    } else if (1 == owner) {
+      memmove(owner_iv, your_iv, 8);
+      memmove(&owner_schedule, &your_schedule, sizeof(BF_KEY));
+    }
+
+    if (0 == payload) {
+      memmove(payload_iv, lenovo_iv, 8);
+      memmove(&payload_schedule, &lenovo_schedule, sizeof(BF_KEY));
+    } else if (1 == payload) {
+      memmove(payload_iv, your_iv, 8);
+      memmove(&payload_schedule, &your_schedule, sizeof(BF_KEY));
+    }
+
+    base = (unsigned char *)mmapfile(argv[4], PROT_READ, MAP_SHARED, &length);
+    if (base == MAP_FAILED) {
         perror("mmapfile");
         return 1;
     }
 
-    if (argc >= 4)
-    {
-        out_fd = open(argv[3], O_WRONLY|O_CREAT, 0666);
-        if (out_fd == -1)
-        {
-            perror("Could not open output file");
-            return 1;
-        }
+    out_fd = open(argv[5], O_WRONLY|O_CREAT, 0666);
+    if (-1 == out_fd) {
+      perror("Could not open output file");
+      return 1;
     }
 
-    memcpy(thisiv, iv, 8);
-    BF_cbc_encrypt(base, out, 0x200, &key, thisiv, enc);
+    // go
+    memmove(this_iv, owner_iv, 8);
+    BF_cbc_encrypt(base, out, 0x200, &owner_schedule, this_iv, enc);
     r = write(out_fd, out, 0x200);
-    r += write(out_fd, base+0x200, 0xff0-0x200);
-    memcpy(thisiv, iv, 8);
-    BF_cbc_encrypt(base+0xff0, out, 0x3000-0xff0, &key, thisiv, enc);
-    r += write(out_fd, out, 0x3000-0xff0);
-    r += write(out_fd, base+0x3000, length-0x3000);
+    r += write(out_fd, base + 0x200, 0xff0 - 0x200);
+
+    memmove(tmp, base + 0xff0, 0x3000 - 0xff0);
+    if (enc == 1) {
+      memmove(tmp + 0x1000 - 0xff0, &payload_schedule, sizeof(BF_KEY));
+      memmove(tmp + 0x2928 - 0xff0, &payload_iv, 8);
+      for(uint32_t *i = (uint32_t*)(tmp + 0x2928 - 0xff0); i < (uint32_t*)(tmp + 0x2928 + 0x8 - 0xff0); ++i) swap32(i);
+    }
+
+    memmove(this_iv, owner_iv, 8);
+    BF_cbc_encrypt(tmp, out, 0x3000 - 0xff0, &owner_schedule, this_iv, enc);
+    r += write(out_fd, out, 0x3000 - 0xff0);
+    r += write(out_fd, base + 0x3000, length - 0x3000);
+
     munmap(base, length);
     close(out_fd);
-    return (r!=length);
+    return (length != r);
 }

@@ -1,0 +1,6 @@
+0x240 "G4HT39BS"
+0x268 "The Industrial Revolution and its consequences have been a disaster for the human race. They have greatly increased the life-expectancy of those of us who live in advanced countries, but they have destabilized society, have made ..."
+0x1cb10 81 10 e0 78 88 e0 ca 21
+0x1cb80 f8 16 02 11 4a 26 00 70
+0x1cc88 80 10 e0 78 e9 70 82 0b
+0x1cce0 c0 16 e0 78 00 86 a4 b8
